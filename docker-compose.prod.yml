@@ -1,0 +1,136 @@
+version: '3'
+
+services:
+  app:
+    container_name: route_api
+    build:
+      context: .
+      dockerfile: ./env/app/Dockerfile
+    image: app-image
+    env_file:
+      - ./env/.env.prod
+    expose:
+      - ${API_PORT}
+    volumes:
+      - .:/app
+      - app_logs:/app/logs
+      - static_resources:/app/static
+      - media_resources:/app/media
+    depends_on:
+      - db
+      - redis
+    command: >
+      sh -c "./env/app/wait-for-it.sh db:${DB_PG_PORT} -- python manage.py migrate &&
+      python manage.py collectstatic --no-input &&
+      gunicorn -b 0.0.0.0:${API_PORT} --workers ${API_GUNICORN_WORKERS} core.wsgi:application"
+    restart: always
+    networks:
+      - nginx_network
+      - app_network
+
+  db:
+    container_name: route_api_db
+    image: postgres:12.3
+    volumes:
+      - db_data:/var/lib/postgresql
+    env_file:
+      - ./env/.env.prod
+    environment:
+      - POSTGRES_HOST=db
+    expose:
+      - ${DB_PG_PORT}
+    command: -p ${DB_PG_PORT}
+    restart: on-failure
+    healthcheck:
+      test: "exit 0"
+    networks:
+      - app_network
+
+  redis:
+    container_name: route_api_redis
+    image: redis:6.0
+    expose:
+      - ${REDIS_PORT}
+    volumes:
+      - redis_data:/var/lib/redis
+      - ./env/redis/redis.conf.prod:/tmp/redis.conf
+    privileged: true
+    command: >
+      /bin/bash -c "echo 1 > /proc/sys/vm/overcommit_memory
+      && mkdir -p /usr/local/etc/redis
+      && cp /tmp/redis.conf /usr/local/etc/redis/redis.conf
+      && sed -i -e 's/REDIS_PORT/${REDIS_PORT}/g' /usr/local/etc/redis/redis.conf
+      && redis-server --port ${REDIS_PORT} --appendonly yes"
+    sysctls:
+      - net.core.somaxconn=512
+    networks:
+      - app_network
+
+  nginx:
+    container_name: route_api_nginx
+    image: nginx:latest
+    restart: always
+    ports:
+      - ${API_EXPOSED_PORT}:80
+    volumes:
+      - ./env/nginx/config/default.conf.template:/tmp/default.conf
+      - static_resources:/static_resources
+      - media_resources:/media_resources
+      - nginx_logs:/logs
+    command: >
+      /bin/bash -c "cp /tmp/default.conf /etc/nginx/conf.d/default.conf
+      && sed -i -e 's/API_PORT/${API_PORT}/g' /etc/nginx/conf.d/default.conf
+      && nginx -g 'daemon off;'"
+    depends_on:
+      - app
+    networks:
+      - nginx_network
+
+  celery:
+    image: app-image
+    container_name: route_api_celery
+    env_file:
+      - ./env/.env.prod
+    volumes:
+      - .:/app
+    command: >
+      sh -c "./env/app/wait-for-it.sh app:${API_PORT} -- celery -A core worker -l info"
+    restart: on-failure
+    depends_on:
+      - app
+      - db
+      - redis
+    networks:
+      - app_network
+
+  celery-beat:
+    image: app-image
+    container_name: route_api_celery_beat
+    env_file:
+      - ./env/.env.prod
+    volumes:
+      - .:/app
+    command: >
+      sh -c "rm -rf celerybeat.pid celerybeat-schedule &&
+      ./env/app/wait-for-it.sh app:${API_PORT} -- celery -A core beat -l info"
+    restart: on-failure
+    depends_on:
+      - app
+      - db
+      - redis
+    networks:
+      - app_network
+
+volumes:
+  app_logs:
+  nginx_logs:
+  db_data:
+  redis_data:
+  static_resources:
+  media_resources:
+
+networks:
+  nginx_network:
+    driver: bridge
+  app_network:
+    driver: bridge

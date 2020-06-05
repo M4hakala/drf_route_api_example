@@ -1,0 +1,1 @@
+0 1 * * * cd /app && python manage.py calculate_longest_route $(date -d "yesterday" +\%Y-\%m-\%d)

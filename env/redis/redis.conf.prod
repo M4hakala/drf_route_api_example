@@ -1,0 +1,3 @@
+bind app celery celery-beat
+port REDIS_PORT
+databases 4

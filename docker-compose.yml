@@ -1,0 +1,52 @@
+version: '3'
+
+services:
+  db:
+    container_name: route_api_db
+    image: postgres:12.3
+    volumes:
+      - db_data:/var/lib/postgresql
+    environment:
+      - POSTGRES_HOST=db
+      - POSTGRES_DB=${DB_PG_DB}
+      - POSTGRES_USER=${DB_PG_USER}
+      - POSTGRES_PASSWORD=${DB_PG_PASS}
+    command: -p ${DB_PG_PORT}
+    ports:
+      - ${DB_PG_PORT}:${DB_PG_PORT}
+    restart: on-failure
+    healthcheck:
+      test: "exit 0"
+    networks:
+      - app_network
+
+  redis:
+    container_name: route_api_redis
+    image: redis:6.0
+    ports:
+      - ${REDIS_PORT}:${REDIS_PORT}
+    volumes:
+      - redis_data:/var/lib/redis
+      - ./env/redis/redis.conf.dev:/tmp/redis.conf
+    privileged: true
+    command: >
+      /bin/bash -c "echo 1 > /proc/sys/vm/overcommit_memory
+      && mkdir -p /usr/local/etc/redis
+      && cp /tmp/redis.conf /usr/local/etc/redis/redis.conf
+      && sed -i -e 's/REDIS_PORT/${REDIS_PORT}/g' /usr/local/etc/redis/redis.conf
+      && redis-server --port ${REDIS_PORT} --appendonly yes"
+    sysctls:
+      - net.core.somaxconn=512
+    networks:
+      - app_network
+
+volumes:
+  app_logs:
+  db_data:
+  redis_data:
+  static_resources:
+  media_resources:
+
+networks:
+  app_network:
+    driver: bridge

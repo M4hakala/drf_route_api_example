@@ -1,0 +1,8 @@
+__pycache__/
+logs/*
+.vscode/
+venv/
+.idea/
+.history
+celerybeat.pid 
+celerybeat-schedule
